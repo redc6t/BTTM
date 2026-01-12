@@ -5,7 +5,7 @@ A motorsport telemetry system for real-time thermal monitoring of racing vehicle
 Features
 
 Multi-node CAN architecture with dedicated brake and tire sensor nodes
-Infrared and resistance temperature detection (RTD sensors)
+Infrared temperature detection
 Central monitoring unit with ESP32-S3 microcontroller
 Real-time web telemetry dashboard over WiFi
 Local TFT display for trackside feedback
