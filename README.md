@@ -12,11 +12,10 @@ Local TFT display for trackside feedback
 High-frequency data logging and cloud backup integration
 Mesh networking support for extended track coverage
 
-
 **Hardware**
 
-- ESP32-S3 main hub
-- ESP32-C3 CAN node modules (IR)
+- ESP32-S3 main hub (ver 1.2)
+- ESP32-C3 CAN node IR Sensors (ver 1.1)
 
 All PCB designs are custom.
 
