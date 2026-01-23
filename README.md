@@ -1,5 +1,4 @@
 **BTTM - codename: Flavona**
-![Uploading 53865DAA-6330-4362-A534-B9F261CD4213.JPG…]()
 
 **BTTM: Brake & Tire Temperature Monitor**
 A motorsport telemetry system for real-time thermal monitoring of racing vehicle performance. BTTM integrates distributed infrared and RTD temperature sensors across tire and brake systems, reporting via CAN bus to a central ESP32-S3 hub with WiFi telemetry, local web interface, and on-board data logging.
@@ -20,7 +19,7 @@ Mesh networking support for extended track coverage
 
 All PCB designs are custom.
 
-![IMG_2069](https://github.com/user-attachments/assets/417639a7-7b54-42eb-ab91-400a5d157be1)
+![IMG_2069](https://github.com/user-attachments/assets/6d4b40b5-7d64-474c-8136-db1acddca9bb)
 
 **Applications**
 
