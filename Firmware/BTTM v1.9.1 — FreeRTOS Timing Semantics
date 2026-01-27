@@ -1,0 +1,132 @@
+MAIN()
+{
+    init_hardware()
+    init_shared_data()
+    init_peripherals()
+    init_network()
+
+    xTaskCreatePinnedToCore(
+        SensorLoggerTask,
+        core = 0,
+        priority = HIGH
+    )
+
+    xTaskCreatePinnedToCore(
+        DisplayTask,
+        core = 1,
+        priority = MEDIUM
+    )
+
+    vTaskStartScheduler()
+}
+
+/* ---------------- SHARED DATA ---------------- */
+
+SharedData_t
+{
+    brake_temp[4]
+    tire_temp[4]
+    temp_stats[8]
+    gnss_data
+    system_flags
+    mutex
+}
+
+/* ---------------- TASK: SENSOR + LOGGER ---------------- */
+
+Task SensorLoggerTask()
+{
+    TickType_t lastWake = xTaskGetTickCount()
+
+    loop forever
+    {
+        /* 1. Drain CAN RX queue (non-blocking burst) */
+        for i = 1 to MAX_CAN_MSGS_PER_LOOP
+        {
+            if (xQueueReceive(CAN_RX_QUEUE, msg, timeout = 0))
+                process_can_message(msg)
+            else
+                break
+        }
+
+        /* 2. Update temperature statistics (CPU-bound, deterministic) */
+        compute_temperature_statistics()
+
+        /* 3. GNSS polling (event-driven by internal 5 Hz engine) */
+        if (gnss.getPVT())              // non-blocking UBX read
+        {
+            lock(shared.mutex)
+            shared.gnss_data = extract_pvt()
+            unlock(shared.mutex)
+
+            /* 4. SD logging synced to GNSS epoch */
+            if (shared.system_flags.sd_ok)
+                log_csv_row()
+        }
+
+        /* 5. Update health flags */
+        update_system_flags()
+
+        /* 6. Deterministic periodic execution */
+        vTaskDelayUntil(
+            &lastWake,
+            SENSOR_TASK_PERIOD   // e.g. 10–20 ms
+        )
+    }
+}
+
+/* ---------------- TASK: DISPLAY ---------------- */
+
+Task DisplayTask()
+{
+    TickType_t lastWake = xTaskGetTickCount()
+
+    loop forever
+    {
+        /* 1. Snapshot shared state (short critical section) */
+        lock(shared.mutex)
+        snapshot = shared
+        unlock(shared.mutex)
+
+        /* 2. Render UI (non-blocking, SPI-bound) */
+        draw_temperature_grid(snapshot)
+        draw_gnss_status(snapshot)
+        draw_alerts(snapshot)
+
+        /* 3. Fixed refresh rate */
+        vTaskDelayUntil(
+            &lastWake,
+            DISPLAY_TASK_PERIOD   // e.g. 250 ms (4 Hz)
+        )
+    }
+}
+
+/* ---------------- CAN ISR / DRIVER ---------------- */
+
+CAN_RX_ISR()
+{
+    msg = read_can_hw_fifo()
+    xQueueSendFromISR(CAN_RX_QUEUE, msg)
+}
+
+/* ---------------- GNSS CONFIG ---------------- */
+
+init_gnss_ubx()
+{
+    set_uart_baudrate(115200)
+    disable_nmea_output()
+    enable_ubx_protocol()
+    set_navigation_rate(5Hz)
+}
+
+/* ---------------- TIMING MODEL ---------------- */
+
+Timing_Model
+{
+    CAN RX        : interrupt-driven → queue
+    Sensor Task   : periodic, high priority
+    GNSS PVT      : event-polled, 5 Hz internal
+    SD Logging    : GNSS-synchronous
+    Display Task  : periodic, low priority
+    Web Server    : async callbacks (no blocking)
+}
