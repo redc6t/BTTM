@@ -1,0 +1,164 @@
+MAIN()
+{
+    init_hardware()
+    init_shared_data()
+    init_peripherals()
+    init_network()
+    init_tasks()
+    start_scheduler()
+}
+
+/* ---------------- INIT ---------------- */
+
+init_hardware()
+{
+    init_serial_debug()
+    init_gpio()
+}
+
+init_peripherals()
+{
+    init_tft_display()
+    init_sd_card()
+    init_can_controller()
+    init_gnss_ubx(uart=115200, rate=5Hz)
+}
+
+init_network()
+{
+    start_wifi_ap_or_sta()
+    start_async_web_server()
+}
+
+/* ---------------- SHARED DATA ---------------- */
+
+SharedData_t
+{
+    brake_temp[4]
+    tire_temp[4]
+    temp_stats[8]        // min, max, avg, std
+    gnss                 // lat, lon, speed, sats, fix
+    system_flags         // sd_ok, gnss_fix, wifi_ok
+    mutex
+}
+
+/* ---------------- TASKS ---------------- */
+
+Task SensorLoggerTask (Core 0, High Priority)
+{
+    loop forever
+    {
+        drain_can_rx_queue()
+        update_temperature_buffers()
+        compute_temperature_statistics()
+
+        if (gnss.new_pvt_available())
+        {
+            read_gnss_pvt()
+            update_shared_gnss()
+            log_to_sd_if_available()
+        }
+
+        update_system_flags()
+        sleep_short()
+    }
+}
+
+Task DisplayTask (Core 1, Medium Priority)
+{
+    loop forever
+    {
+        lock_shared_data()
+        snapshot = copy_shared_data()
+        unlock_shared_data()
+
+        draw_temperature_grid(snapshot)
+        draw_gnss_status(snapshot)
+        flash_overtemp_cells(snapshot)
+
+        sleep_display_period()
+    }
+}
+
+/* ---------------- CAN ---------------- */
+
+drain_can_rx_queue()
+{
+    while (can_message_available() && limit_not_reached)
+    {
+        msg = read_can_message()
+        decode_temperature(msg)
+        store_in_buffer(msg.id)
+    }
+}
+
+/* ---------------- GNSS ---------------- */
+
+init_gnss_ubx()
+{
+    set_uart_baudrate(115200)
+    disable_nmea()
+    enable_ubx_only()
+    set_navigation_rate(5Hz)
+}
+
+read_gnss_pvt()
+{
+    lat = pvt.latitude
+    lon = pvt.longitude
+    speed = pvt.ground_speed
+    sats = pvt.satellites
+    fix_valid = pvt.fix_ok
+}
+
+/* ---------------- LOGGING ---------------- */
+
+log_to_sd_if_available()
+{
+    if (sd_ok)
+    {
+        format_csv_row(
+            timestamp,
+            gnss_data,
+            brake_temps,
+            tire_temps,
+            stats
+        )
+        write_to_file_buffered()
+    }
+}
+
+/* ---------------- WEB ---------------- */
+
+WebServer
+{
+    endpoint /data
+        return JSON(shared_data_snapshot)
+
+    endpoint /logs
+        list_sd_files()
+
+    endpoint /download
+        stream_log_file()
+
+    endpoint /reboot
+        restart_device()
+}
+
+/* ---------------- UTILITIES ---------------- */
+
+compute_temperature_statistics()
+{
+    for each sensor
+        calc_min()
+        calc_max()
+        calc_average()
+        calc_stddev()
+}
+
+update_system_flags()
+{
+    sd_ok = sd_present()
+    gnss_fix = fix_valid
+    wifi_ok = wifi_connected()
+}
