@@ -1,0 +1,159 @@
+SCOPE:
+	- Reduce CPU load
+	- Eliminate timing edge cases
+
+
+
+
+Phase 1 — Decouple SD Logging (Highest ROI, Low Risk)
+
+	⦿ 1.1 Create SD Logger Task
+
+		- New FreeRTOS task on Core 1, Low priority
+
+		- Task blocks on log_queue
+
+
+	⦿ 1.2 Replace direct SD writes
+
+		- Remove write_to_sd()
+		- Implement Format CSV rows
+
+	⦿ 1.3 Validate behavior
+		
+		- Logging still synced to GNSS
+		- CAN temps unchanged
+		- SD stalls no longer affect sensor timing
+		(system behavior identical, just safer)
+
+========================================================================================================
+
+Phase 2 — GNSS Isolation
+
+	⦿ 2.1 Create GNSS Task
+
+		- Core 0
+		- High priority
+		- Responsible only for getPVT()
+
+	⦿ 2.2 Replace shared GNSS writes
+
+		- Remove GNSS updates from sensor task
+		- GNSS task sends latest PVT via: xQueueOverwrite(gnss_queue, pvt)
+
+	⦿ 2.3 Update sensor task
+
+		- Replace gnss.getPVT() calls with: if (xQueueReceive(gnss_queue, pvt, 0))
+
+========================================================================================================
+
+Phase 3 — Kill the Big Mutex (Easy I'll nuke the poor thing here)
+
+	⦿ 3.1 Introduce Snapshot struct
+
+	⦿ 3.2 Implement atomic swap (No mutex)
+
+	⦿ 3.3 Convert Display task & Web Server
+
+		- Read snapshot only and remove mutex usage
+
+========================================================================================================
+
+Phase 4 — Introduce Aggregator Task
+
+	⦿ 4.1 Create Aggregator Task
+
+		- Core 0
+		- Medium priority
+		- Periodic (vTaskDelayUntil, ~10 ms)
+
+	⦿ 4.2 Move CAN decoding here
+
+		- From sensor task: Remove CAN decode logic
+
+		- Aggregator: Drains CAN queue, Decodes temps, Updates stats
+
+		(Sensor task becomes unnecessary after this step)
+
+	⦿ 4.3 Build snapshot here
+
+		Aggregator responsibilities:
+
+		- Merge CAN data
+		- Merge GNSS data
+		- Build snapshot
+		- Trigger logging
+
+		(Aggregator is the single writer)
+
+========================================================================================================
+
+Phase 5 — Incremental Statistics
+
+	⦿ 5.1 Replace full recompute
+
+		- Remove: min/max scan loops, avg/stddev recomputation
+
+	⦿ 5.2 Implement Welford per sensor
+
+		- Each sensor keeps: count, mean, m2
+
+		(Stats update happens only when new CAN data arrives.
+
+	⦿ 5.3 Verify numerical correctness
+
+		- Compare against old method for sanity
+		- Validate during transient startup
+
+========================================================================================================
+
+Phase 6 — CAN Robustness
+	
+	⦿ 6.1 Size CAN queue explicitly
+
+		- Calculate: queue_depth >= max_msgs_per_period * safety_factor
+		- 400 msgs/s
+		- 10 ms period
+
+	⦿ 6.2 Add overflow counters
+
+	- Track: CAN RX dropped, Logger queue overflow, Expose via /data.
+
+========================================================================================================
+
+Phase 7 — Timing Validation
+
+	⦿ 7.1 Measure worst-case execution
+		
+		- Log: Aggregator execution time, Logger write latency, Display render time
+
+	⦿ 7.2 Stress tests
+
+		- Disable SD card
+		- Hammer WiFi
+		- Artificial CAN bursts
+		- GNSS @ 10 Hz (and 25Hz when upgrade to M9 -scheduled!)
+		(System should degrade gracefully.)
+
+========================================================================================================
+
+Phase 8 — Cleanup & Hardening
+	
+	⦿ 8.1 Delete obsolete code
+
+		- Old sensor task
+		- Old mutex
+		- Legacy shared structs
+
+	⦿ 8.2 Update documentation
+
+		- README architecture
+		- Task table
+		- Data flow diagram
+
+	⦿ 8.3 Tag release
+
+		- v2.0.0-arch
+		- Keep 1.9.1 backed up
+
+========================================================================================================
